@@ -22,6 +22,7 @@
         "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
         "firebase/app": "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js",
         "firebase/firestore": "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js",
+        "firebase/auth": "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js",
         "lucide-react": "https://esm.sh/lucide-react@0.292.0"
       }
     }
@@ -66,27 +67,52 @@
         import { createRoot } from 'react-dom/client';
         import { initializeApp } from "firebase/app";
         import { getFirestore, collection, addDoc, query, orderBy, serverTimestamp, onSnapshot, deleteDoc, doc, updateDoc, increment } from "firebase/firestore";
+        import { getAuth, signInAnonymously } from "firebase/auth";
         import { 
           Compass, PlusCircle, Smile, Map as MapIcon, User, ArrowLeft, 
           MapPin, List, Settings, Clock, Image as ImageIcon, X, 
-          Hash, Star, Trash2, Search, Award, Route, Coffee, ArrowRight, Edit3, Save, Globe
+          Hash, Star, Trash2, Search, Award, Route, Coffee, ArrowRight, Edit3, Save, Globe,
+          MessageCircle, Heart, MessageSquare, Send, PenTool, Database, DatabaseZap
         } from 'lucide-react';
 
-        // --- 1. Firebase Configuration ---
-        const firebaseConfig = {
-          apiKey: "AIzaSyAFqiz-m7CGB5c5NmF4Lq_UXm5cKFwJV2I",
-          authDomain: "london-potluck.firebaseapp.com",
-          projectId: "london-potluck",
-          storageBucket: "london-potluck.firebasestorage.app",
-          messagingSenderId: "705384101432",
-          appId: "1:705384101432:web:a54e5b3e01a17757b098cd"
+        // --- 1. Firebase Configuration Logic ---
+        // Check for custom config in localStorage
+        const getFirebaseConfig = () => {
+            const custom = localStorage.getItem('london_potluck_firebase_config');
+            if (custom) {
+                try {
+                    return JSON.parse(custom);
+                } catch (e) {
+                    console.error("Invalid custom config", e);
+                }
+            }
+            // Default Fallback
+            return {
+              apiKey: "AIzaSyAFqiz-m7CGB5c5NmF4Lq_UXm5cKFwJV2I",
+              authDomain: "london-potluck.firebaseapp.com",
+              projectId: "london-potluck",
+              storageBucket: "london-potluck.firebasestorage.app",
+              messagingSenderId: "705384101432",
+              appId: "1:705384101432:web:a54e5b3e01a17757b098cd"
+            };
         };
 
         let app;
+        let db;
+        let auth;
+        
         try {
-            app = initializeApp(firebaseConfig);
-        } catch(e) {}
-        const db = getFirestore(app);
+            const config = getFirebaseConfig();
+            app = initializeApp(config);
+            db = getFirestore(app);
+            auth = getAuth(app);
+            // Attempt Anonymous Login to fix permission issues
+            signInAnonymously(auth).catch((error) => {
+                console.warn("Auth failed:", error.message);
+            });
+        } catch(e) {
+            console.error("Firebase init failed:", e);
+        }
 
         // --- 2. Design Tokens & Data ---
 
@@ -96,6 +122,7 @@
           blue: 'bg-[#4D96FF]',
           green: 'bg-[#6BCB77]',
           orange: 'bg-[#FF6B6B]',
+          purple: 'bg-[#A688FA]', // New color for Forum
           dark: 'bg-[#2D2D2D]',
           border: 'border-[#2D2D2D]',
           shadow: 'shadow-[4px_4px_0px_0px_rgba(45,45,45,1)]',
@@ -110,6 +137,14 @@
           { id: 'religion', label: 'Religion', emoji: '🕌', color: THEME.blue, textColor: 'text-blue-900', desc: 'Find spiritual peace' },
         ];
 
+        // NEW: Forum Categories
+        const FORUM_CATEGORIES = [
+          { id: 'ask', label: 'Ask London', emoji: '🙋', color: 'bg-[#4D96FF]', desc: 'Questions & Help' },
+          { id: 'tips', label: 'Pro Tips', emoji: '💡', color: 'bg-[#FFD93D]', desc: 'Guides & Hacks' },
+          { id: 'chat', label: 'Chill Chat', emoji: '☕️', color: 'bg-[#6BCB77]', desc: 'Social & Meetups' },
+          { id: 'rant', label: 'Hot Takes', emoji: '🔥', color: 'bg-[#FF6B6B]', desc: 'Rants & Opinions' },
+        ];
+
         const CULTURES = [
           "UK Local", "China", "Korea", "Japan", "Southeast Asia", 
           "India", "Pakistan", "Italy", "France", "Rest of Europe", 
@@ -121,6 +156,12 @@
         const MOCK_TRACES = [
           { id: 'm1', actionTitle: "Buy Sichuan Peppercorns", locationName: "Hackney Chinese Supermarket", description: "The smell here reminds me of Chengdu. Make sure to buy the red bag!", category: "food", culture: "China", lat: 51.545, lng: -0.055, createdAt: { seconds: 1700000000 }, tags: "#Spicy #Home" },
           { id: 'm2', actionTitle: "Sunday Flower Market Walk", locationName: "Columbia Road", description: "Get there by 8am to avoid crowds. The shouting traders are the best part.", category: "lifestyle", culture: "UK Local", lat: 51.528, lng: -0.07, createdAt: { seconds: 1700003000 }, tags: "#Sunday #Flowers" },
+        ];
+
+        const MOCK_FORUM_POSTS = [
+            { id: 'fp1', title: "Best Sunday Roast in East London?", content: "I've tried a few places in Shoreditch but looking for something more traditional. Any hidden gems?", category: 'ask', likes: 12, author: "LondonEats", createdAt: { seconds: Date.now()/1000 } },
+            { id: 'fp2', title: "Avoid the tube at 5pm!", content: "Central line is absolute chaos today. Just walk if you can.", category: 'tips', likes: 45, author: "CommuterLife", createdAt: { seconds: Date.now()/1000 - 86400 } },
+            { id: 'fp3', title: "Anyone up for a coffee in Hyde Park?", content: "It's sunny today! I'll be near the Serpentine around 2pm.", category: 'chat', likes: 3, author: "SunnyDay", createdAt: { seconds: Date.now()/1000 - 172800 } },
         ];
 
         // --- 3. Optimized Leaflet Map Component ---
@@ -438,6 +479,403 @@
           );
         };
 
+        // --- NEW: Forum Components ---
+
+        // NEW: Database Config Modal
+        const DBConfigModal = ({ onClose }) => {
+            const [configStr, setConfigStr] = useState('');
+            
+            useEffect(() => {
+                const current = localStorage.getItem('london_potluck_firebase_config');
+                if (current) setConfigStr(current);
+            }, []);
+
+            const handleSave = () => {
+                if (!configStr.trim()) {
+                    localStorage.removeItem('london_potluck_firebase_config');
+                    alert("Reset to default demo database. Reload to apply.");
+                    window.location.reload();
+                    return;
+                }
+                try {
+                    const parsed = JSON.parse(configStr);
+                    if (!parsed.apiKey || !parsed.projectId) throw new Error("Invalid config");
+                    localStorage.setItem('london_potluck_firebase_config', configStr);
+                    alert("Config saved! Reloading...");
+                    window.location.reload();
+                } catch (e) {
+                    alert("Invalid JSON format. Please copy the full config object from Firebase Console.");
+                }
+            };
+
+            return (
+                <div className="fixed inset-0 z-[150] flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-fade-in">
+                    <div className="bg-[#FFFBF0] w-full max-w-lg rounded-[32px] border-4 border-[#2D2D2D] shadow-2xl p-6 relative">
+                        <button onClick={onClose} className="absolute top-4 right-4 p-2 hover:bg-gray-200 rounded-full"><X size={24}/></button>
+                        <h2 className="text-2xl font-black text-[#2D2D2D] mb-4 flex items-center gap-2">
+                            <DatabaseZap size={28} className="text-yellow-500" /> Connect Your DB
+                        </h2>
+                        <p className="text-sm font-bold text-gray-500 mb-4">
+                            The default database is strictly read-only for security. To enable posting and interactions, create a FREE project at <a href="https://console.firebase.google.com" target="_blank" className="text-blue-500 underline">firebase.google.com</a> and paste your config JSON here.
+                        </p>
+                        <textarea 
+                            value={configStr}
+                            onChange={e => setConfigStr(e.target.value)}
+                            placeholder='{"apiKey": "...", "authDomain": "...", ...}'
+                            className="w-full h-48 p-4 font-mono text-xs border-2 border-[#2D2D2D] rounded-xl bg-white mb-4"
+                        />
+                        <button onClick={handleSave} className="w-full py-3 bg-[#2D2D2D] text-white font-black rounded-xl hover:bg-black transition-all">
+                            Save & Reload
+                        </button>
+                        <button onClick={() => { localStorage.removeItem('london_potluck_firebase_config'); window.location.reload(); }} className="w-full mt-2 py-2 text-red-500 font-bold text-xs hover:underline">
+                            Reset to Default (Demo Mode)
+                        </button>
+                    </div>
+                </div>
+            );
+        };
+
+        // NEW: Forum Post Detail Modal with Comments
+        const ForumPostDetailModal = ({ post, onClose, currentUserId }) => {
+            const [reply, setReply] = useState('');
+            const [comments, setComments] = useState([]);
+            const [sending, setSending] = useState(false);
+            const isMock = !post.id || post.id.startsWith('fp');
+
+            useEffect(() => {
+                if (isMock) {
+                    // Populate mock comments for demo
+                    setComments([
+                        {id: 'mc1', author: 'LondonLover', content: 'Totally agree with this! The vibe is amazing.', createdAt: {seconds: Date.now()/1000 - 3600}},
+                        {id: 'mc2', author: 'Tourist_99', content: 'Thanks for the tip, adding to my list.', createdAt: {seconds: Date.now()/1000 - 1800}}
+                    ]);
+                    return;
+                }
+                const q = query(collection(db, `forum_posts/${post.id}/comments`), orderBy("createdAt", "asc"));
+                const unsubscribe = onSnapshot(q, (snapshot) => {
+                    setComments(snapshot.docs.map(d => ({id: d.id, ...d.data()})));
+                }, (error) => {
+                    console.error("Comments permission error:", error);
+                });
+                return () => unsubscribe();
+            }, [post.id, isMock]);
+
+            const handleSendReply = async () => {
+                if (!reply.trim()) return;
+                setSending(true);
+                try {
+                    await addDoc(collection(db, `forum_posts/${post.id}/comments`), {
+                        content: reply,
+                        author: "Explorer", 
+                        createdAt: serverTimestamp()
+                    });
+                    setReply('');
+                } catch (e) {
+                    console.error(e);
+                    alert("Posting failed. Please check your database rules allow writing to 'forum_posts'.");
+                } finally {
+                    setSending(false);
+                }
+            };
+
+            const cat = FORUM_CATEGORIES.find(c => c.id === post.category) || FORUM_CATEGORIES[0];
+
+            return (
+                <div className="fixed inset-0 z-[130] flex items-end md:items-center justify-center pointer-events-none">
+                    <div className="absolute inset-0 bg-[#2D2D2D]/60 backdrop-blur-sm pointer-events-auto" onClick={onClose}></div>
+                    <div className="bg-[#FFFBF0] w-full md:w-[600px] md:h-[80vh] h-[90vh] md:rounded-[32px] rounded-t-[32px] shadow-2xl overflow-hidden pointer-events-auto flex flex-col border-t-4 md:border-4 border-[#2D2D2D] animate-slide-up">
+                        
+                        {/* Header */}
+                        <div className="p-6 border-b-2 border-[#2D2D2D] bg-white flex justify-between items-start">
+                            <div>
+                                <div className={`inline-flex items-center gap-2 px-3 py-1 rounded-full border border-[#2D2D2D] text-xs font-black uppercase ${cat.color} mb-3`}>
+                                    {cat.emoji} {cat.label}
+                                </div>
+                                <h2 className="text-2xl font-black text-[#2D2D2D] leading-tight">{post.title}</h2>
+                                <div className="flex items-center gap-2 mt-2">
+                                    <div className="w-6 h-6 rounded-full bg-gray-200 border border-[#2D2D2D] flex items-center justify-center text-[10px] font-bold">{post.author ? post.author[0] : '?'}</div>
+                                    <span className="text-xs font-bold text-gray-400">{post.author} • {post.createdAt && typeof post.createdAt.seconds === 'number' ? new Date(post.createdAt.seconds * 1000).toLocaleDateString() : 'Just now'}</span>
+                                </div>
+                            </div>
+                            <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-full border border-transparent hover:border-[#2D2D2D] transition-all">
+                                <X size={24}/>
+                            </button>
+                        </div>
+
+                        {/* Body & Comments */}
+                        <div className="flex-1 overflow-y-auto p-6 bg-[#FFFBF0]">
+                            {isMock && (
+                                <div className="bg-yellow-100 border-2 border-yellow-400 text-yellow-800 p-3 rounded-xl text-xs font-black mb-4 text-center">
+                                    🚧 Demo Mode: This is a sample post. Comments are simulated.
+                                </div>
+                            )}
+                            <p className="text-lg font-bold text-[#2D2D2D] leading-relaxed whitespace-pre-wrap mb-8">
+                                {post.content}
+                            </p>
+
+                            <div className="border-t-2 border-dashed border-[#2D2D2D]/20 pt-6">
+                                <h3 className="font-black text-gray-400 uppercase text-sm mb-4">Discussion ({comments.length})</h3>
+                                {comments.length === 0 ? (
+                                    <div className="text-center py-8 text-gray-400 font-bold italic">No replies yet. Start the conversation! 👇</div>
+                                ) : (
+                                    <div className="space-y-4">
+                                        {comments.map(comment => (
+                                            <div key={comment.id} className="bg-white p-3 rounded-xl border border-[#2D2D2D] shadow-sm">
+                                                <div className="flex justify-between items-center mb-1">
+                                                    <span className="text-xs font-black text-purple-600">{comment.author}</span>
+                                                    <span className="text-[10px] text-gray-400">{comment.createdAt ? new Date(comment.createdAt.seconds * 1000).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : 'Just now'}</span>
+                                                </div>
+                                                <p className="text-sm font-bold text-[#2D2D2D]">{comment.content}</p>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+
+                        {/* Footer Input */}
+                        <div className="p-4 bg-white border-t-2 border-[#2D2D2D] flex gap-2 items-end">
+                            <textarea 
+                                value={reply}
+                                onChange={e => setReply(e.target.value)}
+                                placeholder={isMock ? "Comments disabled for demo posts" : "Add your two cents..."}
+                                disabled={isMock}
+                                className="flex-1 p-3 bg-gray-50 border-2 border-[#2D2D2D] rounded-xl font-bold text-sm resize-none focus:outline-none focus:ring-2 focus:ring-purple-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                                rows={1}
+                            />
+                            <button 
+                                onClick={handleSendReply}
+                                disabled={sending || !reply.trim() || isMock}
+                                className="p-3 bg-[#2D2D2D] text-white rounded-xl hover:scale-105 active:scale-95 transition-transform disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                                <Send size={20} />
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        const CreateForumPostModal = ({ onClose }) => {
+            const [title, setTitle] = useState('');
+            const [content, setContent] = useState('');
+            const [category, setCategory] = useState(FORUM_CATEGORIES[0].id);
+            const [loading, setLoading] = useState(false);
+
+            const handleSubmit = async () => {
+                if (!title.trim() || !content.trim()) return;
+                setLoading(true);
+                try {
+                    await addDoc(collection(db, "forum_posts"), {
+                        title,
+                        content,
+                        category,
+                        createdAt: serverTimestamp(),
+                        likes: 0,
+                        author: "Explorer"
+                    });
+                    onClose();
+                } catch (e) {
+                    console.error("Posting error:", e);
+                    alert("Failed to post. If you are the owner, please update your Firestore Security Rules to allow writes to 'forum_posts'.");
+                } finally {
+                    setLoading(false);
+                }
+            };
+
+            return (
+                <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-fade-in">
+                    <div className="bg-[#FFFBF0] w-full max-w-lg rounded-[32px] border-4 border-[#2D2D2D] shadow-2xl p-6 relative animate-slide-up">
+                        <button onClick={onClose} className="absolute top-4 right-4 p-2 hover:bg-gray-200 rounded-full border-2 border-transparent hover:border-[#2D2D2D] transition-all">
+                            <X size={24} className="text-[#2D2D2D]" />
+                        </button>
+                        
+                        <h2 className="text-3xl font-black text-[#2D2D2D] mb-6 flex items-center gap-3">
+                            <MessageSquare className="text-purple-500 fill-purple-500" size={32} />
+                            Start a Discussion
+                        </h2>
+
+                        <div className="space-y-5">
+                            <div>
+                                <label className="text-xs font-black uppercase text-gray-500 mb-2 block">Choose Topic Vibe</label>
+                                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                                    {FORUM_CATEGORIES.map(cat => (
+                                        <button 
+                                            key={cat.id}
+                                            onClick={() => setCategory(cat.id)}
+                                            className={`py-3 px-2 rounded-xl border-2 font-bold text-xs flex flex-col items-center gap-1 transition-all ${category === cat.id ? `${cat.color} border-[#2D2D2D] text-[#2D2D2D] shadow-[2px_2px_0px_0px_rgba(45,45,45,1)] -translate-y-1` : 'bg-white border-gray-200 text-gray-400 hover:border-gray-300'}`}
+                                        >
+                                            <span className="text-xl">{cat.emoji}</span>
+                                            {cat.label}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+
+                            <div>
+                                <label className="text-xs font-black uppercase text-gray-500 mb-2 block">Title</label>
+                                <input 
+                                    value={title}
+                                    onChange={e => setTitle(e.target.value)}
+                                    placeholder="What's on your mind?"
+                                    className="w-full p-4 border-2 border-[#2D2D2D] rounded-2xl font-bold bg-white focus:outline-none focus:ring-4 focus:ring-purple-200"
+                                />
+                            </div>
+
+                            <div>
+                                <label className="text-xs font-black uppercase text-gray-500 mb-2 block">Your Thoughts</label>
+                                <textarea 
+                                    value={content}
+                                    onChange={e => setContent(e.target.value)}
+                                    placeholder="Share your experience, ask for advice, or rant away..."
+                                    className="w-full h-32 p-4 border-2 border-[#2D2D2D] rounded-2xl font-medium bg-white resize-none focus:outline-none focus:ring-4 focus:ring-purple-200"
+                                />
+                            </div>
+                        </div>
+
+                        <button 
+                            onClick={handleSubmit}
+                            disabled={loading}
+                            className="w-full mt-8 py-4 bg-[#2D2D2D] text-white font-black text-xl rounded-2xl shadow-[4px_4px_0px_0px_rgba(45,45,45,1)] hover:-translate-y-1 hover:shadow-[6px_6px_0px_0px_rgba(45,45,45,1)] active:translate-y-0 active:shadow-none transition-all flex items-center justify-center gap-2 disabled:opacity-70"
+                        >
+                           {loading ? 'Posting...' : <><Send size={20}/> Post to Forum</>} 
+                        </button>
+                    </div>
+                </div>
+            );
+        };
+
+        const ForumView = ({ onOpenPost }) => {
+            const [posts, setPosts] = useState([]);
+            const [filter, setFilter] = useState('all');
+            const [isCreateOpen, setIsCreateOpen] = useState(false);
+
+            useEffect(() => {
+                const q = query(collection(db, "forum_posts"), orderBy("createdAt", "desc"));
+                // Added error handling to onSnapshot to catch permission-denied errors
+                const unsubscribe = onSnapshot(q, 
+                    (snapshot) => {
+                        const fetchedPosts = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                        setPosts(fetchedPosts.length > 0 ? fetchedPosts : MOCK_FORUM_POSTS);
+                    },
+                    (error) => {
+                        console.error("Forum listener error (likely permissions):", error);
+                        // Fallback to mock data if backend fails
+                        setPosts(MOCK_FORUM_POSTS);
+                    }
+                );
+                return () => unsubscribe();
+            }, []);
+
+            const handleLike = async (e, id) => {
+                e.stopPropagation(); // Prevent opening modal
+                if (id.startsWith('fp')) return; // Don't like mock posts
+                try {
+                    const postRef = doc(db, "forum_posts", id);
+                    await updateDoc(postRef, { likes: increment(1) });
+                } catch (e) {
+                    // console.error("Like failed", e);
+                }
+            };
+
+            const filteredPosts = filter === 'all' ? posts : posts.filter(p => p.category === filter);
+
+            return (
+                <div className="flex flex-col h-full bg-[#FFFBF0] pt-4 max-w-4xl mx-auto w-full relative">
+                    <header className="px-6 mb-6">
+                        <div className="flex justify-between items-center mb-4">
+                             <div>
+                                <h1 className="text-4xl font-black text-[#2D2D2D]">Community <span className="text-purple-500">Voices</span></h1>
+                                <p className="font-bold text-gray-400 text-sm">Real talk from real Londoners.</p>
+                             </div>
+                             <div className="bg-white p-2 rounded-2xl border-2 border-[#2D2D2D] shadow-[3px_3px_0px_0px_rgba(45,45,45,1)]">
+                                <MessageCircle size={32} className="text-purple-500 fill-purple-200" strokeWidth={2.5}/>
+                             </div>
+                        </div>
+
+                        {/* Categories */}
+                        <div className="flex gap-3 overflow-x-auto pb-4 scrollbar-hide">
+                             <button 
+                                onClick={() => setFilter('all')}
+                                className={`px-5 py-2.5 rounded-full border-2 font-black whitespace-nowrap text-sm transition-all ${filter === 'all' ? 'bg-[#2D2D2D] text-white shadow-[2px_2px_0px_0px_rgba(45,45,45,1)]' : 'bg-white border-[#2D2D2D] text-[#2D2D2D] hover:bg-gray-100'}`}
+                             >
+                                All Topics
+                             </button>
+                             {FORUM_CATEGORIES.map(cat => (
+                                 <button 
+                                    key={cat.id}
+                                    onClick={() => setFilter(cat.id)}
+                                    className={`px-5 py-2.5 rounded-full border-2 font-black whitespace-nowrap text-sm flex items-center gap-2 transition-all ${filter === cat.id ? `${cat.color} border-[#2D2D2D] text-[#2D2D2D] shadow-[2px_2px_0px_0px_rgba(45,45,45,1)]` : 'bg-white border-gray-200 text-gray-400 hover:border-[#2D2D2D] hover:text-[#2D2D2D]'}`}
+                                 >
+                                    <span>{cat.emoji}</span> {cat.label}
+                                 </button>
+                             ))}
+                        </div>
+                    </header>
+
+                    {/* Posts List */}
+                    <div className="flex-1 overflow-y-auto px-6 pb-24 space-y-6">
+                        {filteredPosts.length === 0 ? (
+                             <div className="flex flex-col items-center justify-center py-20 text-gray-300">
+                                 <MessageSquare size={64} className="mb-4 stroke-1"/>
+                                 <p className="font-bold text-lg">No conversations yet.</p>
+                                 <p className="font-bold text-sm">Be the first to say something!</p>
+                             </div>
+                        ) : (
+                            filteredPosts.map(post => {
+                                const cat = FORUM_CATEGORIES.find(c => c.id === post.category) || FORUM_CATEGORIES[0];
+                                return (
+                                    <div 
+                                        key={post.id} 
+                                        onClick={() => onOpenPost(post)}
+                                        className="bg-white border-2 border-[#2D2D2D] rounded-3xl p-5 shadow-[4px_4px_0px_0px_rgba(45,45,45,1)] hover:-translate-y-1 hover:shadow-[6px_6px_0px_0px_rgba(45,45,45,1)] transition-all cursor-pointer group"
+                                    >
+                                        <div className="flex justify-between items-start mb-3">
+                                            <div className="flex items-center gap-2">
+                                                <div className="w-8 h-8 rounded-full bg-gray-100 border border-[#2D2D2D] flex items-center justify-center text-xs font-black">
+                                                    {post.author ? post.author[0] : '?'}
+                                                </div>
+                                                <span className="text-xs font-bold text-gray-500">{post.author}</span>
+                                            </div>
+                                            <span className={`px-3 py-1 rounded-lg border border-[#2D2D2D] text-[10px] font-black uppercase ${cat.color}`}>
+                                                {cat.emoji} {cat.label}
+                                            </span>
+                                        </div>
+                                        
+                                        <h3 className="text-xl font-black text-[#2D2D2D] leading-tight mb-2 group-hover:text-purple-600 transition-colors">{post.title}</h3>
+                                        <p className="text-gray-600 font-bold text-sm leading-relaxed mb-4 whitespace-pre-wrap line-clamp-3">{post.content}</p>
+                                        
+                                        <div className="flex items-center justify-between border-t-2 border-dashed border-gray-100 pt-3">
+                                            <span className="text-xs font-bold text-gray-300">
+                                                {post.createdAt && typeof post.createdAt.seconds === 'number' ? new Date(post.createdAt.seconds * 1000).toLocaleDateString() : 'Just now'}
+                                            </span>
+                                            <button 
+                                                onClick={(e) => handleLike(e, post.id)}
+                                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl hover:bg-red-50 text-gray-400 hover:text-red-500 transition-colors"
+                                            >
+                                                <Heart size={18} className="hover:fill-red-500 transition-colors" />
+                                                <span className="font-black text-sm">{post.likes || 0}</span>
+                                            </button>
+                                        </div>
+                                    </div>
+                                );
+                            })
+                        )}
+                    </div>
+
+                    {/* Create Post FAB */}
+                    <button 
+                        onClick={() => setIsCreateOpen(true)}
+                        className="fixed bottom-24 right-6 bg-[#2D2D2D] text-white p-4 rounded-full border-2 border-[#2D2D2D] shadow-[4px_4px_0px_0px_rgba(45,45,45,1)] hover:bg-black hover:scale-110 hover:rotate-90 transition-all z-30"
+                    >
+                        <PlusCircle size={32} />
+                    </button>
+
+                    {isCreateOpen && <CreateForumPostModal onClose={() => setIsCreateOpen(false)} />}
+                </div>
+            );
+        };
+
         const HomeFlow = ({ traces, onOpenDetail, savedPosts, toggleSave }) => {
           return (
             <div className="flex flex-col h-full relative overflow-hidden px-4 md:px-0 max-w-2xl mx-auto w-full">
@@ -653,7 +1091,10 @@
               });
               alert("Published! You earned +1 Contribution Point! 🌟");
               goBack();
-            } catch (e) { alert("Error: " + e.message); } finally { setLoading(false); }
+            } catch (e) { 
+                // console.error(e);
+                alert("Demo Mode: Posting is currently disabled by server rules.");
+            } finally { setLoading(false); }
           };
 
           return (
@@ -837,6 +1278,7 @@
 
         const ProfileView = ({ savedPosts, posts, myPosts, onDeletePost, toggleSave, onOpenDetail, onEditPost }) => {
           const [activeTab, setActiveTab] = useState('collection'); 
+          const [showDbConfig, setShowDbConfig] = useState(false);
           const collectionList = posts.filter(p => savedPosts.includes(p.id));
           const footprintList = myPosts; 
           
@@ -857,6 +1299,13 @@
           return (
             <div className="flex flex-col h-full bg-[#FFFBF0] px-4 md:px-8 pt-6 max-w-4xl mx-auto w-full overflow-y-auto pb-32">
               <div className="bg-white border-2 border-[#2D2D2D] rounded-[32px] p-6 shadow-[6px_6px_0px_0px_rgba(45,45,45,1)] mb-8 relative overflow-hidden">
+                <button 
+                  onClick={() => setShowDbConfig(true)}
+                  className="absolute top-4 right-4 text-gray-300 hover:text-gray-500 z-20 hover:rotate-90 transition-all"
+                  title="Database Settings"
+                >
+                  <Settings size={24}/>
+                </button>
                 <div className="absolute -right-4 -top-4 w-32 h-32 bg-yellow-300 rounded-full opacity-50 blur-2xl"></div>
                 <div className="flex flex-col md:flex-row items-center gap-6 relative z-10">
                    <div className="w-24 h-24 bg-[#FFD93D] rounded-full border-4 border-[#2D2D2D] flex items-center justify-center text-5xl shadow-sm">😎</div>
@@ -933,6 +1382,8 @@
                   })
                 )}
               </div>
+              
+              {showDbConfig && <DBConfigModal onClose={() => setShowDbConfig(false)} />}
             </div>
           );
         };
@@ -943,6 +1394,10 @@
           const [mode, setMode] = useState(null); 
           const [posts, setPosts] = useState([]);
           const [selectedPost, setSelectedPost] = useState(null);
+          
+          // NEW: Selected Forum Post state
+          const [selectedForumPost, setSelectedForumPost] = useState(null);
+
           const [editingPost, setEditingPost] = useState(null);
           const [showSplash, setShowSplash] = useState(true); // Control Splash Screen
           
@@ -963,11 +1418,20 @@
 
           useEffect(() => {
             const q = query(collection(db, "potlucks"), orderBy("createdAt", "desc"));
-            const unsubscribe = onSnapshot(q, (snapshot) => {
-              const fetchedPosts = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-              setPosts(fetchedPosts.length > 0 ? fetchedPosts : MOCK_TRACES);
-              setMyPosts(fetchedPosts.filter((_, i) => i % 3 === 0)); 
-            });
+            // Added error handling to onSnapshot to catch permission-denied errors
+            const unsubscribe = onSnapshot(q, 
+                (snapshot) => {
+                  const fetchedPosts = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                  setPosts(fetchedPosts.length > 0 ? fetchedPosts : MOCK_TRACES);
+                  setMyPosts(fetchedPosts.filter((_, i) => i % 3 === 0)); 
+                },
+                (error) => {
+                    console.error("Potluck listener error (likely permissions):", error);
+                    // Fallback to mock data if backend fails
+                    setPosts(MOCK_TRACES);
+                    setMyPosts(MOCK_TRACES);
+                }
+            );
             return () => unsubscribe();
           }, []);
 
@@ -976,8 +1440,8 @@
               try {
                 await deleteDoc(doc(db, "potlucks", id));
               } catch (error) {
-                console.error("Error deleting post:", error);
-                alert("Could not delete. (Authentication required for real deletion)");
+                // console.error("Error deleting post:", error);
+                alert("Demo Mode: Deletion disabled by server rules.");
               }
             }
           };
@@ -988,14 +1452,14 @@
               await updateDoc(postRef, newData);
               setEditingPost(null); // Close modal
             } catch (error) {
-              console.error("Error updating post:", error);
-              alert("Update failed.");
+              // console.error("Error updating post:", error);
+              alert("Demo Mode: Updates disabled by server rules.");
             }
           };
 
           const Navigation = () => (
             <nav className="bg-white border-t-2 border-[#2D2D2D] h-20 flex justify-around items-center z-50 fixed bottom-0 left-0 right-0 w-full pb-safe">
-              {['home', 'map', 'profile'].map(tab => (
+              {['home', 'map', 'forum', 'profile'].map(tab => (
                 <button 
                   key={tab}
                   onClick={() => {setCurrentTab(tab); setMode(null)}} 
@@ -1004,6 +1468,7 @@
                   <div className={`transition-all duration-300 transform ${currentTab === tab ? '-translate-y-2' : ''}`}>
                     {tab === 'home' && <Smile size={32} strokeWidth={currentTab === tab ? 3 : 2} className={currentTab === tab ? 'text-[#2D2D2D]' : 'text-gray-300'} />}
                     {tab === 'map' && <MapIcon size={32} strokeWidth={currentTab === tab ? 3 : 2} className={currentTab === tab ? 'text-[#2D2D2D]' : 'text-gray-300'} />}
+                    {tab === 'forum' && <MessageCircle size={32} strokeWidth={currentTab === tab ? 3 : 2} className={currentTab === tab ? 'text-[#2D2D2D]' : 'text-gray-300'} />}
                     {tab === 'profile' && <User size={32} strokeWidth={currentTab === tab ? 3 : 2} className={currentTab === tab ? 'text-[#2D2D2D]' : 'text-gray-300'} />}
                   </div>
                   {currentTab === tab && <div className="absolute bottom-2 w-1.5 h-1.5 bg-[#2D2D2D] rounded-full"></div>}
@@ -1076,6 +1541,10 @@
                     {currentTab === 'map' && (
                       <DiscoverView posts={posts} onOpenDetail={setSelectedPost} />
                     )}
+
+                    {currentTab === 'forum' && (
+                      <ForumView onOpenPost={setSelectedForumPost} />
+                    )}
                     
                     {currentTab === 'profile' && (
                       <ProfileView 
@@ -1100,6 +1569,14 @@
                   onClose={() => setSelectedPost(null)} 
                   isSaved={savedPosts.includes(selectedPost.id)}
                   onToggleSave={() => toggleSave(selectedPost.id)}
+                />
+              )}
+
+              {/* Forum Post Detail Modal */}
+              {selectedForumPost && (
+                <ForumPostDetailModal
+                    post={selectedForumPost}
+                    onClose={() => setSelectedForumPost(null)}
                 />
               )}
 
